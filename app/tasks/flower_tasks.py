@@ -3,8 +3,7 @@ Flowerable CrewAI - Task 정의
 Phase 1: 꽃 분석 + 부케 스타일링
 Phase 2: 지역 꽃집 매칭
 """
-from crewai import Task
-from crewai import Agent
+from crewai import Task, Agent
 
 
 def create_flower_analysis_task(agent: Agent, user_situation: str) -> Task:

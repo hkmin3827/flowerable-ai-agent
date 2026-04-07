@@ -3,16 +3,12 @@ Flowerable CrewAI - Agent 정의
 꽃 주문 플랫폼을 위한 3인 에이전트 체제
 """
 from crewai import Agent
-from langchain_google_genai import ChatGoogleGenerativeAI
-from tools import get_flowers_by_sentiment, get_matching_sub_flowers, get_shops_by_location_and_flower
-import os
-
-def _build_llm():
-    return ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-        temperature=0.3,
-    )
+from app.tools.flower_tools import (
+    get_flowers_by_sentiment,
+    get_matching_sub_flowers,
+    get_shops_by_location_and_flower,
+)
+from app.core.model import model
 
 
 def create_floral_analyst() -> Agent:
@@ -34,7 +30,7 @@ def create_floral_analyst() -> Agent:
             "존재하지 않는 꽃을 만들어내는 일은 절대 하지 않습니다."
         ),
         tools=[get_flowers_by_sentiment],
-        llm=_build_llm(),
+        llm=model,
         verbose=True,
         allow_delegation=False,
         max_iter=3,
@@ -60,7 +56,7 @@ def create_bouquet_stylist() -> Agent:
             "각 꽃의 역할(메인/서브/필러)을 명확히 구분해 설명합니다."
         ),
         tools=[get_matching_sub_flowers],
-        llm=_build_llm(),
+        llm=model,
         verbose=True,
         allow_delegation=False,
         max_iter=3,
@@ -86,7 +82,7 @@ def create_local_shop_matcher() -> Agent:
             "인근 지역의 대안을 제시합니다."
         ),
         tools=[get_shops_by_location_and_flower],
-        llm=_build_llm(),
+        llm=model,
         verbose=True,
         allow_delegation=False,
         max_iter=3,
