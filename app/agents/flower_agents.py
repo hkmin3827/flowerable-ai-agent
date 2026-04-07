@@ -1,7 +1,3 @@
-"""
-Flowerable CrewAI - Agent 정의
-꽃 주문 플랫폼을 위한 3인 에이전트 체제
-"""
 from crewai import Agent
 from app.tools.flower_tools import (
     get_flowers_by_sentiment,
@@ -20,8 +16,9 @@ def create_floral_analyst() -> Agent:
         role="Floral Analyst",
         goal=(
             "사용자의 상황과 감정을 분석하여, DB에 등록된 꽃들 중에서 "
-            "의미(꽃말)가 가장 적절한 '메인 꽃' 1~2가지를 선정한다. "
+            "의미(꽃말)가 가장 적절한 '메인 꽃' 1~3가지를 선정한다. "
             "절대로 도구가 반환하지 않은 꽃을 추천해서는 안 된다."
+            "의미가 연관이 아예 없다고 판단되면 개수를 채우기 위해 억지로 메인 꽃에 끼워맞추지 않는다."
         ),
         backstory=(
             "당신은 10년 경력의 플로리스트이자 꽃말 전문가입니다. "
@@ -44,9 +41,9 @@ def create_bouquet_stylist() -> Agent:
     return Agent(
         role="Bouquet Stylist",
         goal=(
-            "Floral Analyst가 선정한 메인 꽃을 기반으로, "
-            "get_matching_sub_flowers 도구를 사용해 DB에서 어울리는 서브 꽃과 "
-            "필러/그린 소재를 조합하여 최종 부케 디자인을 마크다운 형식으로 제안한다. "
+            "Floral Analyst가 선정한 메인 꽃 중 가장 사용자의 상황과 꽃말이 알맞는 꽃을 1가지 선정하고, "
+            "get_matching_sub_flowers 도구를 사용해 선정된 꽃을 제외한 가장 잘 어울리는 서브 꽃을 DB에서 등록된 꽃 중 2~3가지 선정한다."
+            "그리고 필러/그린 소재를 조합하여 최종 부케 디자인을 마크다운 형식으로 제안한다. "
             "도구가 반환한 꽃 목록 외에는 절대 사용하지 않는다."
         ),
         backstory=(

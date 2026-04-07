@@ -143,8 +143,8 @@ def recommend(req: RecommendRequest):
     - location 있음 → FLOWER_AND_SHOP (Phase 1 + Phase 2)
     """
     # 지연 임포트: lifespan 이후 API 키 보장된 상태에서 초기화
-    from agents import create_floral_analyst, create_bouquet_stylist, create_local_shop_matcher
-    from tasks import (
+    from app.agents.flower_agents import create_floral_analyst, create_bouquet_stylist, create_local_shop_matcher
+    from app.tasks.flower_tasks import (
         create_flower_analysis_task,
         create_bouquet_styling_task,
         create_shop_matching_task,
