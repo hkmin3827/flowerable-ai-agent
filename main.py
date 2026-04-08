@@ -17,12 +17,7 @@ load_dotenv()
 
 DIVIDER = "=" * 60
 
-
 def run_phase1(user_situation: str) -> str:
-    """
-    Phase 1: Floral Analyst + Bouquet Stylist
-    사용자 상황 → 메인 꽃 선정 → 부케 디자인 제안
-    """
     analyst = create_floral_analyst()
     stylist = create_bouquet_stylist()
 

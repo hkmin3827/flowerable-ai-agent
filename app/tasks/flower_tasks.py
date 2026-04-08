@@ -1,8 +1,3 @@
-"""
-Flowerable CrewAI - Task 정의
-Phase 1: 꽃 분석 + 부케 스타일링
-Phase 2: 지역 꽃집 매칭
-"""
 from crewai import Task, Agent
 
 

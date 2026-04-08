@@ -1,63 +1,9 @@
-"""
-Flowerable CrewAI - DB Tools
-PostgreSQL 연동 CrewAI 도구 모음
-Tables: flowers, shops, shop_flowers, shop_flower_colors
-"""
-import os
 import json
 import psycopg2
 import psycopg2.extras
 from crewai.tools import tool
-
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5432")),
-    "database": os.getenv("DB_NAME"),
-    "user": os.getenv("DB_USER"),
-    "password": os.getenv("DB_PASSWORD"),
-}
-
-# Region 한글 → DB Enum 매핑
-REGION_MAP = {
-    "서울": "SEOUL", "경기": "GYEONGGI", "강원": "GANGWON",
-    "광주": "GWANGJU", "인천": "INCHEON", "대구": "DAEGU",
-    "부산": "BUSAN", "대전": "DAEJEON", "울산": "ULSAN",
-    "세종": "SEJONG", "충북": "CHUNGBUK", "충청북도": "CHUNGBUK",
-    "충남": "CHUNGNAM", "충청남도": "CHUNGNAM",
-    "전북": "JEONBUK", "전라북도": "JEONBUK",
-    "전남": "JEONNAM", "전라남도": "JEONNAM",
-    "경북": "GYEONGBUK", "경상북도": "GYEONGBUK",
-    "경남": "GYEONGNAM", "경상남도": "GYEONGNAM",
-    "제주": "JEJU",
-    "서울특별시": "SEOUL", "경기도": "GYEONGGI",
-    "강원특별자치도": "GANGWON", "광주광역시": "GWANGJU",
-    "인천광역시": "INCHEON", "대구광역시": "DAEGU",
-    "부산광역시": "BUSAN", "대전광역시": "DAEJEON",
-    "울산광역시": "ULSAN", "세종특별자치시": "SEJONG",
-    "제주특별자치도": "JEJU",
-}
-
-# 인접 지역 매핑 (꽃집 없을 때 대안 제시용)
-NEARBY_REGIONS = {
-    "SEOUL": ["GYEONGGI", "INCHEON"],
-    "GYEONGGI": ["SEOUL", "INCHEON", "GANGWON", "CHUNGNAM", "CHUNGBUK"],
-    "INCHEON": ["SEOUL", "GYEONGGI"],
-    "GANGWON": ["GYEONGGI", "CHUNGBUK", "GYEONGBUK"],
-    "DAEJEON": ["CHUNGNAM", "CHUNGBUK", "GYEONGBUK", "GYEONGNAM"],
-    "CHUNGBUK": ["GYEONGGI", "GANGWON", "DAEJEON", "CHUNGNAM"],
-    "CHUNGNAM": ["GYEONGGI", "DAEJEON", "CHUNGBUK", "JEONBUK"],
-    "GWANGJU": ["JEONNAM", "JEONBUK"],
-    "JEONBUK": ["CHUNGNAM", "GWANGJU", "JEONNAM", "GYEONGNAM"],
-    "JEONNAM": ["GWANGJU", "JEONBUK", "GYEONGNAM"],
-    "DAEGU": ["GYEONGBUK", "GYEONGNAM"],
-    "GYEONGBUK": ["DAEGU", "GANGWON", "CHUNGBUK", "GYEONGNAM"],
-    "GYEONGNAM": ["DAEGU", "BUSAN", "ULSAN", "JEONNAM"],
-    "BUSAN": ["GYEONGNAM", "ULSAN"],
-    "ULSAN": ["BUSAN", "GYEONGNAM", "GYEONGBUK"],
-    "SEJONG": ["DAEJEON", "CHUNGNAM", "CHUNGBUK"],
-    "JEJU": [],
-}
-
+from app.utils.constant import NEARBY_REGIONS, REGION_MAP
+from app.core.config import DB_CONFIG
 
 def _get_conn():
     return psycopg2.connect(**DB_CONFIG)
