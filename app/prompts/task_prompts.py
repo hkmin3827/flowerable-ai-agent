@@ -1,11 +1,6 @@
-"""
-Flowerable CrewAI - Task 프롬프트 (description / expected_output)
-"""
-
-# ── Task 1: Flower Analysis ─────────────────────────────────────────────────
-def flower_analysis_description(user_situation: str) -> str:
+def _flower_analysis_description(user_situation: str) -> str:
     return f"""
-사용자의 상황을 분석하여 DB에서 가장 적합한 메인 꽃을 선정하세요.
+사용자의 상황을 분석하여 DB에서 가장 적합한 메인 꽃들과 베스트 꽃을 선정하세요.
 
 [사용자 상황]
 {user_situation}
@@ -13,8 +8,10 @@ def flower_analysis_description(user_situation: str) -> str:
 [수행 절차]
 1. 사용자 상황에서 핵심 감정/키워드를 추출합니다.
    (예: '사과' → '진심,성실', '축하' → '영광,화려함,기쁨', '사랑' → '사랑,고백')
-2. get_flowers_by_sentiment 도구를 호출하여 해당 감정에 맞는 꽃 목록을 조회합니다.
-3. 도구가 반환한 목록에서만 메인 꽃 1~3가지를 선정합니다.
+2. [필수] get_flowers_by_sentiment 도구를 호출하여 검색 결과를 받습니다.
+3. [엄격한 제약] **오직 도구가 반환한 JSON의 'name' 필드에 명시된 꽃** 중에서만 메인 꽃 1~3가지를 선정합니다.
+   - 도구를 호출하지 않거나, 도구 결과에 없는 꽃은 절대 출력하지 마세요. (현재 품절 처리된 꽃일 수 있습니다.)
+   - 만약 도구가 결과를 찾지 못했다면, 다른 키워드로 다시 도구를 호출하세요.
 4. 선정된 후보 중 사용자의 상황과 가장 완벽하게 일치하는 '베스트 꽃' 1개를 최종 선정합니다.
 
 [출력 형식]
@@ -36,15 +33,14 @@ def flower_analysis_description(user_situation: str) -> str:
 """
 
 
-FLOWER_ANALYSIS_EXPECTED_OUTPUT = (
+_FLOWER_ANALYSIS_EXPECTED_OUTPUT = (
     "1~3개의 메인 꽃 후보 마크다운 표, 최종 선정된 베스트 꽃 1개와 그 사유, "
     "그리고 후행 에이전트(Stylist)를 위한 명시적 지시사항. "
     "반드시 DB 조회 결과에서만 선정할 것."
 )
 
 
-# ── Task 2: Bouquet Styling ─────────────────────────────────────────────────
-BOUQUET_STYLING_DESCRIPTION = """
+_BOUQUET_STYLING_DESCRIPTION = """
 Floral Analyst가 선정한 '베스트 꽃'을 바탕으로 조화로운 부케 디자인을 완성하세요.
 
 [수행 절차]
@@ -72,14 +68,13 @@ Floral Analyst가 선정한 '베스트 꽃'을 바탕으로 조화로운 부케 
 원하시는 꽃과 지역을 말씀해주시면 해당 꽃을 보유한 꽃집을 추천해드리겠습니다. 🌿
 """
 
-BOUQUET_STYLING_EXPECTED_OUTPUT = (
+_BOUQUET_STYLING_EXPECTED_OUTPUT = (
     "베스트 메인 꽃을 중심으로 구성된 부케 디자인 전체 구성 (메인/서브/필러 꽃 목록, 각 선택 이유, 전체 컨셉). "
     "마지막에 지역·꽃 입력 안내 문구 포함."
 )
 
 
-# ── Task 3: Shop Matching ───────────────────────────────────────────────────
-def shop_matching_description(location: str, flower_names: str) -> str:
+def _shop_matching_description(location: str, flower_names: str) -> str:
     return f"""
 사용자가 요청한 지역에서 해당 꽃을 보유한 꽃집을 DB에서 조회하여 안내하세요.
 
@@ -104,11 +99,11 @@ def shop_matching_description(location: str, flower_names: str) -> str:
 [출력 형식 - 꽃집 있는 경우]
 ## 📍 추천 꽃집 목록
 
-| # | 꽃집 이름 | 주소 | 보유 꽃 |
-|---|---------|------|--------|
-| 1 | (이름) | (주소) | (꽃 목록) |
-| 2 | (이름) | (주소) | (꽃 목록) |
-| 3 | (이름) | (주소) | (꽃 목록) |
+| # | 꽃집 이름 | 주소 | 지역코드 | 보유 꽃 |
+|---|---------|------|---------|--------|
+| 1 | (이름) | (주소) | (도구가 반환한 district 값) | (꽃 목록) |
+| 2 | (이름) | (주소) | (도구가 반환한 district 값) | (꽃 목록) |
+| 3 | (이름) | (주소) | (도구가 반환한 district 값) | (꽃 목록) |
 
 [출력 형식 - 꽃집 없는 경우]
 ## ⚠️ 꽃집을 찾을 수 없습니다
@@ -122,7 +117,60 @@ def shop_matching_description(location: str, flower_names: str) -> str:
 """
 
 
-SHOP_MATCHING_EXPECTED_OUTPUT = (
-    "꽃집 3곳 마크다운 표 (이름, 주소, 보유 꽃) 또는 "
+_SHOP_MATCHING_EXPECTED_OUTPUT = (
+    "꽃집 3곳 마크다운 표 (이름, 주소, 지역코드, 보유 꽃) 또는 "
     "꽃집 없음 안내 + 인접 구/시 대안 + 추가 추천 여부 질문."
+)
+
+
+def _location_parsing_description(user_content: str) -> str:
+    return f"""
+사용자 입력에서 지역과 꽃 이름을 추출하고, 지역을 DB 코드로 변환하세요.
+
+[사용자 입력]
+{user_content}
+
+[수행 절차]
+1. 입력에서 지역 관련 텍스트를 추출합니다.
+   예) "해운대구에서 장미 파는 꽃집" → 지역: "해운대구"
+   예) "경기도 성남시 분당구 튤립 꽃집" → 지역: "경기도 성남시 분당구"
+   예) "부산 중구에서 카네이션" → 지역: "부산 중구"
+
+2. resolve_location 도구를 추출한 지역 텍스트로 호출합니다.
+   - 도구 반환값의 status가 "OK"이면 해당 코드를 사용합니다.
+   - status가 "NOT_FOUND"이면 지역을 찾지 못한 것입니다.
+
+3. 입력에서 꽃 이름을 추출합니다.
+   - 없으면 빈 문자열("")로 둡니다.
+   - 쉼표로 구분하여 나열합니다. (예: "장미,튤립,카네이션")
+
+4. 아래 JSON 형식으로만 출력합니다. 다른 텍스트는 포함하지 마세요.
+
+[지역을 찾은 경우 출력 형식]
+```json
+{{
+  "status": "OK",
+  "region_code": "<resolve_location 반환값>",
+  "district_code": "<resolve_location 반환값, 없으면 빈 문자열>",
+  "address_hint": "<DB에 없는 세부 주소, 없으면 빈 문자열>",
+  "flowers": "<추출된 꽃 이름 쉼표 구분, 없으면 빈 문자열>"
+}}
+```
+
+[지역을 찾지 못한 경우 출력 형식]
+```json
+{{
+  "status": "NOT_FOUND"
+}}
+```
+
+> ⚠️ 반드시 resolve_location 도구를 호출해야 합니다. 도구 없이 임의로 코드를 만들지 마세요.
+"""
+
+
+_LOCATION_PARSING_EXPECTED_OUTPUT = (
+    "resolve_location 도구 호출 결과를 기반으로 한 JSON 블록. "
+    "status='OK'이면 region_code, district_code, address_hint, flowers 포함. "
+    "status='NOT_FOUND'이면 해당 필드만 포함. "
+    "JSON 외 다른 텍스트 없음."
 )

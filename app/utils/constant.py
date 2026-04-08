@@ -1,4 +1,21 @@
-REGIONS = [
+_SHOP_INTENT_KEYWORDS = frozenset({
+    # 꽃집 탐색 의도가 명확한 단어만 포함
+    # "사고", "있어" 등 감정 설명에서도 쓰이는 단어는 제외
+    "꽃집", "살 수", "살게", "파는", "팔고", "판매", "구매", "구입",
+    "추천", "검색", "매장", "가게", "알려",
+})
+
+_LOCATION_NOT_FOUND_MSG = (
+    "지역을 찾을 수 없습니다. 다시 입력해주세요.\n\n"
+    "예시:\n"
+    "  • 해운대구\n"
+    "  • 경기도 성남시 분당구\n"
+    "  • 부산 중구\n\n"
+    "지역명(시/도) + 구/시 단위로 함께 입력해주세요.\n"
+    "종료하려면 'exit'을 입력하세요."
+)
+
+_REGIONS = [
     "서울", "경기", "강원", "광주", "인천", "대구", "부산",
     "대전", "울산", "세종", "충북", "충남", "전북", "전남",
     "경북", "경남", "제주",
@@ -8,7 +25,7 @@ REGIONS = [
     "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도",
 ]
 
-ALL_FLOWERS = [
+_ALL_FLOWERS = [
     "튤립", "프리지아", "라넌큘러스", "수선화", "히아신스", "조팝나무",
     "아카시아", "무스카리", "아네모네", "아이리스", "작약", "라일락",
     "스위트피", "칼라", "은방울꽃", "해바라기", "장미", "백합", "델피늄",
@@ -20,7 +37,9 @@ ALL_FLOWERS = [
     "낙산홍", "스노우드롭", "헬레보루스", "왁스플라워",
 ]
 
-REGION_MAP = {
+_ALL_FLOWERS_SET = frozenset(_ALL_FLOWERS)
+
+_REGION_MAP = {
     "서울": "SEOUL", "경기": "GYEONGGI", "강원": "GANGWON",
     "광주": "GWANGJU", "인천": "INCHEON", "대구": "DAEGU",
     "부산": "BUSAN", "대전": "DAEJEON", "울산": "ULSAN",
@@ -40,7 +59,7 @@ REGION_MAP = {
 }
 
 # 인접 광역/도 (Region 레벨 fallback용 - district 없을 때 최후 수단)
-NEARBY_REGIONS = {
+_NEARBY_REGIONS = {
     "SEOUL": ["GYEONGGI", "INCHEON"],
     "GYEONGGI": ["SEOUL", "INCHEON", "GANGWON", "CHUNGNAM", "CHUNGBUK"],
     "INCHEON": ["SEOUL", "GYEONGGI"],
@@ -61,7 +80,7 @@ NEARBY_REGIONS = {
 }
 
 
-DISTRICT_LOOKUP = {
+_DISTRICT_LOOKUP = {
     # ── 서울 (대부분 고유) ──────────────────────────────────────────────
     "종로구": ["SEOUL_JONGNO"],
     "용산구": ["SEOUL_YONGSAN"],
@@ -235,7 +254,7 @@ DISTRICT_LOOKUP = {
     "서귀포시": ["JEJU_SEOGWIPO"],
 }
 
-NEARBY_DISTRICTS = {
+_NEARBY_DISTRICTS = {
     # ── 서울 ─────────────────────────────────────────────────────────────
     "SEOUL_JONGNO":       ["SEOUL_JUNGGU", "SEOUL_YONGSAN", "SEOUL_EUNPYEONG", "SEOUL_SEODAEMUN"],
     "SEOUL_JUNGGU":       ["SEOUL_JONGNO", "SEOUL_YONGSAN", "SEOUL_SEONGDONG"],
@@ -324,4 +343,4 @@ NEARBY_DISTRICTS = {
 }
 
 # Region 코드 집합 (district/region 판별용)
-REGION_CODES = set(REGION_MAP.values())
+_REGION_CODES = set(_REGION_MAP.values())

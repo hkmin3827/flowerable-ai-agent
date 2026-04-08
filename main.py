@@ -60,13 +60,13 @@ def print_banner():
 def main():
     print_banner()
 
-    print("\n[STEP 1] 어떤 상황이신가요? 꽃을 구매하고 싶으신 배경을 설명해주세요.")
+    print("\n[STEP 1] 어떤 상황이신가요?")
     print("  예) '친구에게 사과하고 싶어요'")
     print("      '결혼 기념일 선물로 꽃다발을 준비하고 싶어요'")
     print("      '어머니 생신 선물을 찾고 있어요'\n")
 
     while True:
-        user_situation = input("상황을 입력하세요 > ").strip()
+        user_situation = input("고객님이 꽃을 구매하고 싶으신 목적을 입력하세요 > ").strip()
         if user_situation.lower() in ("quit", "exit"):
             print("이용해주셔서 감사합니다. 🌷")
             return
@@ -91,7 +91,7 @@ def main():
     print("      '해운대구에서 튤립이랑 작약 살 수 있는 꽃집 알려줘'")
     print("      '대구 수성구 국화'")
     print("      '부산에서 카네이션'  (광역 단위도 가능)")
-    print("  (건너뛰려면 'skip' 입력)\n")
+    print("  (건너뛰려면 'skip' 입력, 종료하려면 'exit' 또는 'quit' 입력)\n")
 
     while True:
         shop_input = input("지역과 꽃을 입력하세요 > ").strip()
