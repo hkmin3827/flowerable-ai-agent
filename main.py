@@ -35,10 +35,6 @@ def run_phase1(user_situation: str) -> str:
 
 
 def run_phase2(location: str, flower_names: str) -> str:
-    """
-    Phase 2: Local Shop Matcher
-    지역 + 꽃 이름 → 꽃집 3곳 추천 (없으면 인접 지역 대안)
-    """
     matcher = create_local_shop_matcher()
     shop_task = create_shop_matching_task(matcher, location, flower_names)
 
@@ -64,7 +60,6 @@ def print_banner():
 def main():
     print_banner()
 
-    # ── Phase 1: 상황 설명 ──────────────────────────────────────
     print("\n[STEP 1] 어떤 상황이신가요? 꽃을 구매하고 싶으신 배경을 설명해주세요.")
     print("  예) '친구에게 사과하고 싶어요'")
     print("      '결혼 기념일 선물로 꽃다발을 준비하고 싶어요'")
@@ -91,11 +86,11 @@ def main():
     print(phase1_result)
     print(DIVIDER)
 
-    # ── Phase 2: 꽃집 매칭 ────────────────────────────────────
     print("\n[STEP 2] 원하시는 꽃과 지역을 알려주시면 꽃집을 추천해드리겠습니다!")
     print("  예) '서울 중구에서 장미파는 꽃집 알고 싶어요'")
-    print("      '해운대에서 튤립이랑 작약 살 수 있는 꽃집 알려줘'")
-    print("      '대구 국화'")
+    print("      '해운대구에서 튤립이랑 작약 살 수 있는 꽃집 알려줘'")
+    print("      '대구 수성구 국화'")
+    print("      '부산에서 카네이션'  (광역 단위도 가능)")
     print("  (건너뛰려면 'skip' 입력)\n")
 
     while True:
