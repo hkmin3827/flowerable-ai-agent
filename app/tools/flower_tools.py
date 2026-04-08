@@ -1,11 +1,13 @@
 import json
+import re
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool as pg_pool
 from contextlib import contextmanager
 from crewai.tools import tool
-from app.utils.constant import NEARBY_DISTRICTS, NEARBY_REGIONS, REGION_CODES
+from app.utils.constant import _NEARBY_DISTRICTS, _NEARBY_REGIONS, _REGION_CODES, _REGION_MAP, _DISTRICT_LOOKUP
 from app.core.config import DB_CONFIG
+from app.utils.sql import _SQL_BY_DISTRICT, _SQL_BY_DISTRICT_WITH_ADDR, _SQL_BY_DISTRICTS, _SQL_BY_REGIONS, _SQL_BY_REGION
 
 _pool = None
 
@@ -16,10 +18,8 @@ def _get_pool() -> pg_pool.ThreadedConnectionPool:
         _pool = pg_pool.ThreadedConnectionPool(minconn=1, maxconn=5, **DB_CONFIG)
     return _pool
 
-
 @contextmanager
 def _get_conn():
-    """커넥션 풀에서 커넥션을 빌려 yield하고, 완료 후 반납합니다."""
     p = _get_pool()
     conn = p.getconn()
     try:
@@ -32,107 +32,15 @@ def _get_conn():
         p.putconn(conn)
 
 
-_SQL_BY_DISTRICT = """
-    SELECT
-        s.id        AS shop_id,
-        s.shop_name,
-        s.address,
-        s.district,
-        array_agg(DISTINCT f.name)                     AS flower_names,
-        array_length(array_agg(DISTINCT f.name), 1)    AS match_count
-    FROM shops s
-    JOIN shop_flowers sf ON sf.shop_id = s.id
-    JOIN flowers     f  ON f.id = sf.flower_id
-    WHERE s.district = %s
-      AND s.status = 'ACTIVE'
-      AND sf.on_sale = true
-      AND f.name = ANY(%s)
-      AND f.active = true
-      AND s.deleted_at IS NULL
-    GROUP BY s.id, s.shop_name, s.address, s.district
-    HAVING array_length(array_agg(DISTINCT f.name), 1) > 0
-    ORDER BY match_count DESC, s.id
-    LIMIT 3
-"""
-
-_SQL_BY_DISTRICTS = """
-    SELECT
-        s.id        AS shop_id,
-        s.shop_name,
-        s.address,
-        s.district,
-        array_agg(DISTINCT f.name)                     AS flower_names,
-        array_length(array_agg(DISTINCT f.name), 1)    AS match_count
-    FROM shops s
-    JOIN shop_flowers sf ON sf.shop_id = s.id
-    JOIN flowers     f  ON f.id = sf.flower_id
-    WHERE s.district = ANY(%s)
-      AND s.status = 'ACTIVE'
-      AND sf.on_sale = true
-      AND f.name = ANY(%s)
-      AND f.active = true
-      AND s.deleted_at IS NULL
-    GROUP BY s.id, s.shop_name, s.address, s.district
-    HAVING array_length(array_agg(DISTINCT f.name), 1) > 0
-    ORDER BY match_count DESC, s.id
-    LIMIT 6
-"""
-
-_SQL_BY_REGION = """
-    SELECT
-        s.id        AS shop_id,
-        s.shop_name,
-        s.address,
-        s.district,
-        array_agg(DISTINCT f.name)                     AS flower_names,
-        array_length(array_agg(DISTINCT f.name), 1)    AS match_count
-    FROM shops s
-    JOIN shop_flowers sf ON sf.shop_id = s.id
-    JOIN flowers     f  ON f.id = sf.flower_id
-    WHERE s.region = %s
-      AND s.status = 'ACTIVE'
-      AND sf.on_sale = true
-      AND f.name = ANY(%s)
-      AND f.active = true
-      AND s.deleted_at IS NULL
-    GROUP BY s.id, s.shop_name, s.address, s.district
-    HAVING array_length(array_agg(DISTINCT f.name), 1) > 0
-    ORDER BY match_count DESC, s.id
-    LIMIT 3
-"""
-
-_SQL_BY_REGIONS = """
-    SELECT
-        s.id        AS shop_id,
-        s.shop_name,
-        s.address,
-        s.region,
-        s.district,
-        array_agg(DISTINCT f.name)                     AS flower_names,
-        array_length(array_agg(DISTINCT f.name), 1)    AS match_count
-    FROM shops s
-    JOIN shop_flowers sf ON sf.shop_id = s.id
-    JOIN flowers     f  ON f.id = sf.flower_id
-    WHERE s.region = ANY(%s)
-      AND s.status = 'ACTIVE'
-      AND sf.on_sale = true
-      AND f.name = ANY(%s)
-      AND f.active = true
-      AND s.deleted_at IS NULL
-    GROUP BY s.id, s.shop_name, s.address, s.region, s.district
-    HAVING array_length(array_agg(DISTINCT f.name), 1) > 0
-    ORDER BY match_count DESC, s.id
-    LIMIT 6
-"""
-
 
 def _rows_to_shops(rows) -> list:
     return [
         {
+            "shopId":           r["shop_id"],
             "shopName":         r["shop_name"],
             "address":          r["address"],
             "district":         r["district"],
-            "available_flowers": r["flower_names"],
+            "availableFlowers": r["flower_names"],
         }
         for r in rows
     ]
@@ -141,11 +49,133 @@ def _rows_to_shops(rows) -> list:
 def _is_district_code(code: str) -> bool:
     """'REGION_XXX' 형태인지 확인 (Region 코드는 언더스코어 없음)."""
     parts = code.split("_", 1)
-    return len(parts) == 2 and parts[0] in REGION_CODES
+    return len(parts) == 2 and parts[0] in _REGION_CODES
+
+_KO_POSTPOSITIONS = (
+    "에서의", "에서", "으로부터", "으로", "로부터", "로", "에게서", "에게",
+    "에서도", "에도", "에만", "에는", "에", "의", "이나", "이라도",
+    "이라", "이랑", "이", "가", "을", "를", "은", "는", "도", "만",
+    "와", "과", "랑", "한테", "께",
+)
+
+
+def _strip_postposition(token: str) -> str:
+    """토큰에서 한국어 조사를 제거해 원형을 반환한다. (에서, 에, 으로 등)"""
+    for p in _KO_POSTPOSITIONS:
+        if token.endswith(p) and len(token) > len(p):
+            return token[: -len(p)]
+    return token
+
+
+def _resolve_location_internal(text: str) -> dict:
+    """
+    지역 텍스트를 DB 코드로 변환하는 내부 함수.
+    '해운대구에서', '부산에서' 처럼 조사가 붙은 형태도 처리한다.
+    반환: {status, region_code, district_code, address_hint}
+    """
+    text = text.strip()
+    raw_tokens = [t for t in re.split(r"[\s,]+", text) if t]
+
+    # 각 토큰을 조사 제거한 버전과 함께 검사
+    tokens: list[str] = []
+    token_map: dict[str, str] = {}  # 정규화 토큰 → 원본 토큰
+    for t in raw_tokens:
+        stripped = _strip_postposition(t)
+        tokens.append(stripped)
+        token_map[stripped] = t
+
+    stop_words = {"파는", "사는", "구매할", "수", "꽃집", "꽃", "근처", "주변",
+                  "알려", "줘", "주세요", "있는", "어디", "찾아"}
+
+    found_region = None
+    found_district_code = None
+    matched_tokens: set = set()
+
+    # 전체 텍스트 직접 조회
+    if text in _DISTRICT_LOOKUP:
+        codes = _DISTRICT_LOOKUP[text]
+        if len(codes) == 1:
+            dc = codes[0]
+            rc = dc.split("_", 1)[0]
+            return {"status": "OK", "region_code": rc, "district_code": dc, "address_hint": ""}
+    if text in _REGION_MAP:
+        return {"status": "OK", "region_code": _REGION_MAP[text], "district_code": "", "address_hint": ""}
+
+    # 토큰별 1차 조회 (조사 제거 후)
+    for token in tokens:
+        if token in _REGION_MAP and not found_region:
+            found_region = _REGION_MAP[token]
+            matched_tokens.add(token)
+        if token in _DISTRICT_LOOKUP and not found_district_code:
+            codes = _DISTRICT_LOOKUP[token]
+            if len(codes) == 1:
+                found_district_code = codes[0]
+                matched_tokens.add(token)
+
+    # 중복 지역 disambiguation (중구, 동구 등 → region 컨텍스트로 구분)
+    if not found_district_code:
+        for token in tokens:
+            if token in _DISTRICT_LOOKUP and token not in matched_tokens:
+                codes = _DISTRICT_LOOKUP[token]
+                if len(codes) > 1 and found_region:
+                    matching = [c for c in codes if c.startswith(found_region + "_")]
+                    if matching:
+                        found_district_code = matching[0]
+                        matched_tokens.add(token)
+                        break
+
+    # district → region 추론
+    if found_district_code and not found_region:
+        found_region = found_district_code.split("_", 1)[0]
+
+    if found_region or found_district_code:
+        # address_hint: 매칭 안 된 토큰 중 지역 관련 단어 (동/구 수준 세부주소)
+        unmatched = [
+            t for t in tokens
+            if t not in matched_tokens
+               and t not in _REGION_MAP
+               and t not in _DISTRICT_LOOKUP
+               and t not in stop_words
+               and len(t) >= 2
+        ]
+        return {
+            "status": "OK",
+            "region_code": found_region or "",
+            "district_code": found_district_code or "",
+            "address_hint": " ".join(unmatched),
+        }
+
+    return {"status": "NOT_FOUND", "input": text}
+
+
+# district → region 추론은 district_code에서 분리
+
+
+# ── CrewAI 툴 ────────────────────────────────────────────────────
+
+@tool
+def resolve_location(location_text: str) -> str:
+    """
+    사용자 입력에서 추출한 지역 텍스트를 DB 지역 코드로 변환합니다.
+
+    입력: 지역 관련 텍스트 (예: "해운대구", "부산 중구", "경기도 성남시 분당구")
+    출력: JSON {
+      "status": "OK" | "NOT_FOUND",
+      "region_code": "BUSAN",           -- 광역 코드
+      "district_code": "BUSAN_HAEUNDAEGU",  -- 구/시 코드 (없을 수 있음)
+      "address_hint": "우동"            -- DB에 없는 세부 주소 힌트 (빈 문자열 가능)
+    }
+    """
+    result = _resolve_location_internal(location_text)
+    return json.dumps(result, ensure_ascii=False)
 
 
 @tool
 def get_flowers_by_sentiment(sentiment_keywords: str) -> str:
+    """
+    감정 키워드로 DB 꽃 목록을 조회합니다.
+    입력: 쉼표로 구분된 감정 키워드 (예: "사랑,고백,행복")
+    """
     keywords = [k.strip() for k in sentiment_keywords.split(",") if k.strip()]
     if not keywords:
         return json.dumps({"flowers": [], "message": "키워드를 입력해주세요."}, ensure_ascii=False)
@@ -174,6 +204,10 @@ def get_flowers_by_sentiment(sentiment_keywords: str) -> str:
 
 @tool
 def get_matching_sub_flowers(best_flower_name: str) -> str:
+    """
+    베스트 꽃에 어울리는 서브 꽃 후보를 DB에서 조회합니다.
+    입력: 베스트 꽃 이름 (예: "장미")
+    """
     filler_names = ["안개꽃", "팜파스", "목화", "수국", "소국", "스위트피", "리시안셔스"]
     sql_best = "SELECT id FROM flowers WHERE name = %s AND active = true"
     sql_others = """
@@ -213,20 +247,32 @@ def get_matching_sub_flowers(best_flower_name: str) -> str:
 
 @tool
 def get_shops_by_location_and_flower(location_and_flowers: str) -> str:
+    """
+    지역 코드와 꽃 이름으로 꽃집을 DB에서 조회합니다.
+
+    입력 형식: "지역코드|꽃이름1,꽃이름2" 또는 "지역코드|꽃이름1,꽃이름2|세부주소힌트"
+    예시:
+      "BUSAN_HAEUNDAEGU|장미,튤립"
+      "GYEONGGI_SEONGNAM|장미|분당구"   ← 세부 주소 필터 포함
+      "BUSAN|장미"                       ← region 레벨 (district 없을 때)
+
+    출력: JSON { shops: [...], count, location, location_type }
+    """
     try:
         parts = location_and_flowers.split("|")
-        if len(parts) != 2:
+        if len(parts) < 2:
             return json.dumps(
                 {"error": "입력 형식 오류. '지역코드|꽃이름1,꽃이름2' 형식으로 입력하세요."},
                 ensure_ascii=False
             )
         location_raw = parts[0].strip()
         flower_names = [f.strip() for f in parts[1].split(",") if f.strip()]
+        address_hint = parts[2].strip() if len(parts) >= 3 else ""
 
         if _is_district_code(location_raw):
-            return _search_by_district(location_raw, flower_names)
-        elif location_raw in REGION_CODES:
-            return _search_by_region(location_raw, flower_names)
+            return _search_by_district(location_raw, flower_names, address_hint)
+        elif location_raw in _REGION_CODES:
+            return _search_by_region(location_raw, flower_names, address_hint)
         else:
             return json.dumps(
                 {"error": f"'{location_raw}'은(는) 알 수 없는 지역 코드입니다.", "shops": []},
@@ -236,8 +282,25 @@ def get_shops_by_location_and_flower(location_and_flowers: str) -> str:
         return json.dumps({"error": str(e), "shops": []}, ensure_ascii=False)
 
 
-def _search_by_district(district_code: str, flower_names: list) -> str:
-    """District 코드로 꽃집 검색 → 없으면 인접 구 단일 쿼리 fallback."""
+def _search_by_district(district_code: str, flower_names: list, address_hint: str = "") -> str:
+    """District 코드로 꽃집 검색 → address_hint 필터 → 인접 구 fallback."""
+
+    # 1. address_hint 있으면 먼저 시도
+    if address_hint:
+        with _get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(_SQL_BY_DISTRICT_WITH_ADDR,
+                            (district_code, flower_names, f"%{address_hint}%"))
+                rows = cur.fetchall()
+        if rows:
+            return json.dumps(
+                {"location": district_code, "location_type": "district",
+                 "shops": _rows_to_shops(rows), "count": len(rows),
+                 "address_hint_applied": address_hint},
+                ensure_ascii=False, indent=2
+            )
+
+    # 2. 기본 district 조회
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(_SQL_BY_DISTRICT, (district_code, flower_names))
@@ -250,8 +313,8 @@ def _search_by_district(district_code: str, flower_names: list) -> str:
             ensure_ascii=False, indent=2
         )
 
-    # ── fallback 1: 인접 구 (단일 쿼리) ──────────────────────────────────
-    nearby_districts = NEARBY_DISTRICTS.get(district_code, [])
+    # 3. fallback: 인접 구 단일 쿼리
+    nearby_districts = _NEARBY_DISTRICTS.get(district_code, [])
     if nearby_districts:
         with _get_conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -268,7 +331,7 @@ def _search_by_district(district_code: str, flower_names: list) -> str:
                 ensure_ascii=False, indent=2
             )
 
-    # ── fallback 2: 같은 region 전체 ────────────────────────────────────
+    # 4. fallback: 같은 region 전체
     region_code = district_code.split("_", 1)[0]
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -286,22 +349,28 @@ def _search_by_district(district_code: str, flower_names: list) -> str:
     )
 
 
-def _search_by_region(region_code: str, flower_names: list) -> str:
-    """Region 코드로 꽃집 검색 → 없으면 인접 region 단일 쿼리 fallback."""
+def _search_by_region(region_code: str, flower_names: list, address_hint: str = "") -> str:
+    """Region 코드로 꽃집 검색 → 인접 region fallback."""
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(_SQL_BY_REGION, (region_code, flower_names))
             rows = cur.fetchall()
 
     if rows:
+        # address_hint로 후처리 필터
+        if address_hint:
+            filtered = [r for r in rows if address_hint in r["address"]]
+            if filtered:
+                rows = filtered
+
         return json.dumps(
             {"location": region_code, "location_type": "region",
              "shops": _rows_to_shops(rows), "count": len(rows)},
             ensure_ascii=False, indent=2
         )
 
-    # ── fallback: 인접 region 단일 쿼리 (N+1 제거) ───────────────────────
-    nearby_codes = NEARBY_REGIONS.get(region_code, [])
+    # fallback: 인접 region
+    nearby_codes = _NEARBY_REGIONS.get(region_code, [])
     nearby_results = []
     if nearby_codes:
         with _get_conn() as conn:
@@ -309,7 +378,6 @@ def _search_by_region(region_code: str, flower_names: list) -> str:
                 cur.execute(_SQL_BY_REGIONS, (nearby_codes, flower_names))
                 nearby_rows = cur.fetchall()
 
-        # 지역별로 그룹핑 (최대 2개 지역, 각 3곳)
         seen_regions: dict = {}
         for r in nearby_rows:
             rc = r["region"]
@@ -317,10 +385,11 @@ def _search_by_region(region_code: str, flower_names: list) -> str:
                 seen_regions[rc] = []
             if len(seen_regions[rc]) < 3:
                 seen_regions[rc].append({
-                    "shopName":          r["shop_name"],
-                    "address":           r["address"],
-                    "district":          r["district"],
-                    "available_flowers": r["flower_names"],
+                    "shopId":           r["shop_id"],
+                    "shopName":         r["shop_name"],
+                    "address":          r["address"],
+                    "district":         r["district"],
+                    "availableFlowers": r["flower_names"],
                 })
             if len(seen_regions) >= 2 and all(len(v) >= 1 for v in seen_regions.values()):
                 break

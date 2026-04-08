@@ -3,9 +3,16 @@ from app.tools.flower_tools import (
     get_flowers_by_sentiment,
     get_matching_sub_flowers,
     get_shops_by_location_and_flower,
+    resolve_location,
 )
 from app.core.model import model
-from app.prompts import FLORAL_ANALYST_PROMPTS, BOUQUET_STYLING_PROMPTS, LOCAL_SHOP_MATCHER_PROMPTS
+from app.prompts import (
+    FLORAL_ANALYST_PROMPTS,
+    BOUQUET_STYLING_PROMPTS,
+    LOCAL_SHOP_MATCHER_PROMPTS,
+    LOCATION_PARSER_PROMPTS,
+)
+
 
 def create_floral_analyst() -> Agent:
     return Agent(
@@ -19,7 +26,6 @@ def create_floral_analyst() -> Agent:
         max_iter=2,
     )
 
-
 def create_bouquet_stylist() -> Agent:
     return Agent(
         role=BOUQUET_STYLING_PROMPTS["role"],
@@ -32,6 +38,18 @@ def create_bouquet_stylist() -> Agent:
         max_iter=2,
     )
 
+def create_location_parser() -> Agent:
+    """지역 + 꽃 분류 에이전트: 사용자 자유 입력 → DB 지역 코드 + 꽃 이름 추출."""
+    return Agent(
+        role=LOCATION_PARSER_PROMPTS["role"],
+        goal=LOCATION_PARSER_PROMPTS["goal"],
+        backstory=LOCATION_PARSER_PROMPTS["backstory"],
+        tools=[resolve_location],
+        llm=model,
+        verbose=True,
+        allow_delegation=False,
+        max_iter=2,
+    )
 
 def create_local_shop_matcher() -> Agent:
     return Agent(
