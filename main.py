@@ -28,7 +28,7 @@ def run_phase1(user_situation: str) -> str:
         agents=[analyst, stylist],
         tasks=[analysis_task, styling_task],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
     )
     result = crew.kickoff()
     return str(result)
@@ -42,7 +42,7 @@ def run_phase2(location: str, flower_names: str) -> str:
         agents=[matcher],
         tasks=[shop_task],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
     )
     result = crew.kickoff()
     return str(result)

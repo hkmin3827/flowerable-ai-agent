@@ -1,13 +1,15 @@
 import json
+import random
 import re
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool as pg_pool
 from contextlib import contextmanager
 from crewai.tools import tool
-from app.utils.constant import _NEARBY_DISTRICTS, _NEARBY_REGIONS, _REGION_CODES, _REGION_MAP, _DISTRICT_LOOKUP
+from app.utils.constant import _NEARBY_DISTRICTS, _NEARBY_REGIONS, _REGION_CODES, _REGION_MAP, _DISTRICT_LOOKUP, _REGION_CODE_TO_KR, _DISTRICT_CODE_TO_KR
 from app.core.config import DB_CONFIG
-from app.utils.sql import _SQL_BY_DISTRICT, _SQL_BY_DISTRICT_WITH_ADDR, _SQL_BY_DISTRICTS, _SQL_BY_REGIONS, _SQL_BY_REGION
+from app.core.cache import get_cached_shops, set_cached_shops
+from app.utils.sql import _SQL_BY_DISTRICT_WITH_ADDR, _SQL_BY_DISTRICTS, _SQL_BY_REGIONS, _SQL_BY_REGION
 
 _pool = None
 
@@ -78,11 +80,11 @@ def _resolve_location_internal(text: str) -> dict:
 
     # 각 토큰을 조사 제거한 버전과 함께 검사
     tokens: list[str] = []
-    token_map: dict[str, str] = {}  # 정규화 토큰 → 원본 토큰
+    raw_token_map: dict[str, str] = {}  # stripped 토큰 → 원본 토큰
     for t in raw_tokens:
         stripped = _strip_postposition(t)
         tokens.append(stripped)
-        token_map[stripped] = t
+        raw_token_map[stripped] = t
 
     stop_words = {"파는", "사는", "구매할", "수", "꽃집", "꽃", "근처", "주변",
                   "알려", "줘", "주세요", "있는", "어디", "찾아"}
@@ -101,10 +103,13 @@ def _resolve_location_internal(text: str) -> dict:
     if text in _REGION_MAP:
         return {"status": "OK", "region_code": _REGION_MAP[text], "district_code": "", "address_hint": ""}
 
-    # 토큰별 1차 조회 (조사 제거 후)
+    # 토큰별 1차 조회
+    # 원본 토큰 우선 확인: '전라남도' → strip 시 '전라남'으로 잘리는 문제 방지
     for token in tokens:
-        if token in _REGION_MAP and not found_region:
-            found_region = _REGION_MAP[token]
+        raw = raw_token_map.get(token, token)
+        region_key = raw if raw in _REGION_MAP else token
+        if region_key in _REGION_MAP and not found_region:
+            found_region = _REGION_MAP[region_key]
             matched_tokens.add(token)
         if token in _DISTRICT_LOOKUP and not found_district_code:
             codes = _DISTRICT_LOOKUP[token]
@@ -282,38 +287,60 @@ def get_shops_by_location_and_flower(location_and_flowers: str) -> str:
         return json.dumps({"error": str(e), "shops": []}, ensure_ascii=False)
 
 
-def _search_by_district(district_code: str, flower_names: list, address_hint: str = "") -> str:
-    """District 코드로 꽃집 검색 → address_hint 필터 → 인접 구 fallback."""
+def _sample(shops: list[dict], n: int = 3) -> list[dict]:
+    return random.sample(shops, min(n, len(shops)))
 
-    # 1. address_hint 있으면 먼저 시도
-    if address_hint:
+
+def _search_by_district(district_code: str, flower_names: list, address_hint: str = "") -> str:
+    """District 코드로 꽃집 검색.
+    캐시는 region 단위로 관리하고, district/address_hint는 Python에서 필터링.
+    """
+    region_code = district_code.split("_", 1)[0]
+    district_kr = _DISTRICT_CODE_TO_KR.get(district_code, district_code)
+
+    # region 캐시 or DB 조회로 region 전체 풀 확보
+    all_region_shops = get_cached_shops(region_code, flower_names)
+    if all_region_shops is None:
+        with _get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(_SQL_BY_REGION, (region_code, flower_names))
+                rows = cur.fetchall()
+        all_region_shops = _rows_to_shops(rows)
+        if all_region_shops:
+            set_cached_shops(region_code, flower_names, all_region_shops)
+
+    # district 필터링
+    pool = [s for s in all_region_shops if s.get("district") == district_code]
+
+    # address_hint 추가 필터 (캐시 저장 안 함 — 세부 주소는 재사용성 낮음)
+    if not pool and address_hint:
         with _get_conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(_SQL_BY_DISTRICT_WITH_ADDR,
                             (district_code, flower_names, f"%{address_hint}%"))
                 rows = cur.fetchall()
         if rows:
+            shops = _sample(_rows_to_shops(rows))
             return json.dumps(
                 {"location": district_code, "location_type": "district",
-                 "shops": _rows_to_shops(rows), "count": len(rows),
+                 "shops": shops, "count": len(shops),
                  "address_hint_applied": address_hint},
                 ensure_ascii=False, indent=2
             )
+    elif pool and address_hint:
+        filtered = [s for s in pool if address_hint in s.get("address", "")]
+        if filtered:
+            pool = filtered
 
-    # 2. 기본 district 조회
-    with _get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute(_SQL_BY_DISTRICT, (district_code, flower_names))
-            rows = cur.fetchall()
-
-    if rows:
+    if pool:
+        sampled = _sample(pool)
         return json.dumps(
             {"location": district_code, "location_type": "district",
-             "shops": _rows_to_shops(rows), "count": len(rows)},
+             "shops": sampled, "count": len(sampled)},
             ensure_ascii=False, indent=2
         )
 
-    # 3. fallback: 인접 구 단일 쿼리
+    # fallback: 인접 구
     nearby_districts = _NEARBY_DISTRICTS.get(district_code, [])
     if nearby_districts:
         with _get_conn() as conn:
@@ -325,25 +352,19 @@ def _search_by_district(district_code: str, flower_names: list, address_hint: st
                 {
                     "location": district_code, "location_type": "district",
                     "shops": [], "count": 0,
-                    "message": f"'{district_code}'에는 해당 꽃을 보유한 꽃집이 없습니다.",
-                    "nearby_alternatives": _rows_to_shops(nearby_rows),
+                    "message": f"'{district_kr}'에는 해당 꽃을 보유한 꽃집이 없습니다.",
+                    "nearby_alternatives": _sample(_rows_to_shops(nearby_rows)),
                 },
                 ensure_ascii=False, indent=2
             )
 
-    # 4. fallback: 같은 region 전체
-    region_code = district_code.split("_", 1)[0]
-    with _get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute(_SQL_BY_REGION, (region_code, flower_names))
-            region_rows = cur.fetchall()
-
+    # fallback: region 전체 (이미 확보한 풀 재사용)
     return json.dumps(
         {
             "location": district_code, "location_type": "district",
             "shops": [], "count": 0,
-            "message": f"'{district_code}' 및 인근 구에 해당 꽃을 보유한 꽃집이 없습니다.",
-            "nearby_alternatives": _rows_to_shops(region_rows),
+            "message": f"'{district_kr}' 및 인근 구에 해당 꽃을 보유한 꽃집이 없습니다.",
+            "nearby_alternatives": _sample(all_region_shops),
         },
         ensure_ascii=False, indent=2
     )
@@ -351,21 +372,42 @@ def _search_by_district(district_code: str, flower_names: list, address_hint: st
 
 def _search_by_region(region_code: str, flower_names: list, address_hint: str = "") -> str:
     """Region 코드로 꽃집 검색 → 인접 region fallback."""
+
+    # 캐시 확인
+    cached = get_cached_shops(region_code, flower_names)
+    if cached:
+        pool = cached
+        if address_hint:
+            filtered = [s for s in pool if address_hint in s.get("address", "")]
+            if filtered:
+                pool = filtered
+        shops = _sample(pool)
+        return json.dumps(
+            {"location": region_code, "location_type": "region",
+             "shops": shops, "count": len(shops), "cached": True},
+            ensure_ascii=False, indent=2
+        )
+
+    # DB 조회 후 캐싱
     with _get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(_SQL_BY_REGION, (region_code, flower_names))
             rows = cur.fetchall()
 
     if rows:
-        # address_hint로 후처리 필터
-        if address_hint:
-            filtered = [r for r in rows if address_hint in r["address"]]
-            if filtered:
-                rows = filtered
+        all_shops = _rows_to_shops(rows)
+        set_cached_shops(region_code, flower_names, all_shops)
 
+        pool = all_shops
+        if address_hint:
+            filtered = [s for s in pool if address_hint in s.get("address", "")]
+            if filtered:
+                pool = filtered
+
+        shops = _sample(pool)
         return json.dumps(
             {"location": region_code, "location_type": "region",
-             "shops": _rows_to_shops(rows), "count": len(rows)},
+             "shops": shops, "count": len(shops)},
             ensure_ascii=False, indent=2
         )
 
@@ -399,11 +441,12 @@ def _search_by_region(region_code: str, flower_names: list, address_hint: str = 
             for rc, shops in seen_regions.items()
         ]
 
+    region_kr = _REGION_CODE_TO_KR.get(region_code, region_code)
     return json.dumps(
         {
             "location": region_code, "location_type": "region",
             "shops": [], "count": 0,
-            "message": f"'{region_code}'에는 해당 꽃을 보유한 꽃집이 없습니다.",
+            "message": f"'{region_kr}'에는 해당 꽃을 보유한 꽃집이 없습니다.",
             "nearby_alternatives": nearby_results,
         },
         ensure_ascii=False, indent=2

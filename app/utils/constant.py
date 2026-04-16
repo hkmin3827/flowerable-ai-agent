@@ -344,3 +344,31 @@ _NEARBY_DISTRICTS = {
 
 # Region 코드 집합 (district/region 판별용)
 _REGION_CODES = set(_REGION_MAP.values())
+
+# 역매핑: 영문 코드 → 대표 한글 이름
+_REGION_CODE_TO_KR: dict[str, str] = {
+    "SEOUL":     "서울",
+    "GYEONGGI":  "경기도",
+    "GANGWON":   "강원도",
+    "GWANGJU":   "광주",
+    "INCHEON":   "인천",
+    "DAEGU":     "대구",
+    "BUSAN":     "부산",
+    "DAEJEON":   "대전",
+    "ULSAN":     "울산",
+    "SEJONG":    "세종",
+    "CHUNGBUK":  "충청북도",
+    "CHUNGNAM":  "충청남도",
+    "JEONBUK":   "전라북도",
+    "JEONNAM":   "전라남도",
+    "GYEONGBUK": "경상북도",
+    "GYEONGNAM": "경상남도",
+    "JEJU":      "제주",
+}
+
+# district 코드 → 한글 이름 (역매핑)
+_DISTRICT_CODE_TO_KR: dict[str, str] = {
+    code: kr
+    for kr, codes in {k: v for k, v in _DISTRICT_LOOKUP.items() if len(v) == 1}.items()
+    for code in codes
+}

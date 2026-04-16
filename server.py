@@ -16,7 +16,7 @@ from app.tools.flower_tools import (
     _search_by_district,
     _search_by_region,
 )
-from app.utils.constant import _ALL_FLOWERS, _ALL_FLOWERS_SET, _SHOP_INTENT_KEYWORDS, _LOCATION_NOT_FOUND_MSG
+from app.utils.constant import _ALL_FLOWERS, _ALL_FLOWERS_SET, _SHOP_INTENT_KEYWORDS, _LOCATION_NOT_FOUND_MSG, _REGION_CODE_TO_KR, _DISTRICT_CODE_TO_KR
 
 load_dotenv()
 
@@ -137,7 +137,7 @@ def health():
 
 @app.post("/recommend", response_model=RecommendRes)
 async def recommend(req: ContentReq):
-    print(f"\n🚀 [Spring 요청 수신 성공] 내용: {req.content}")
+    print(f"\n[Spring 요청 수신] 내용: {req.content}")
 
     phase = _detect_phase(req.content)
 
@@ -165,17 +165,18 @@ async def _run_phase1(content: str) -> RecommendRes:
             agents=[analyst, stylist],
             tasks=[analysis_task, styling_task],
             process=Process.sequential,
-            verbose=True,
+            verbose=False,
         )
         result = await asyncio.wait_for(
             asyncio.to_thread(crew.kickoff),
-            timeout=18.0
+            timeout=35.0
         )
-        flowers = _extract_flowers_from_text(result)
+        result_str = result.raw
+        flowers = _extract_flowers_from_text(result_str)
 
         return RecommendRes(
             phase="FLOWER_ONLY",
-            recommendation=result,
+            recommendation=result_str,
             flowers=flowers,
         )
     except Exception as e:
@@ -207,13 +208,13 @@ async def _run_phase2(content: str) -> RecommendRes:
             parse_task = create_location_parsing_task(parser, content)
             parse_crew = Crew(
                 agents=[parser], tasks=[parse_task],
-                process=Process.sequential, verbose=True,
+                process=Process.sequential, verbose=False,
             )
             parse_output = await asyncio.wait_for(
             asyncio.to_thread(parse_crew.kickoff),
-            timeout=18.0
+            timeout=35.0
             )
-            location_data = _parse_location_json(parse_output)
+            location_data = _parse_location_json(parse_output.raw)
 
             if not location_data or location_data.get("status") == "NOT_FOUND":
                 return RecommendRes(
@@ -241,6 +242,15 @@ async def _run_phase2(content: str) -> RecommendRes:
 
         shops, message = _build_shops(raw)
         phase = "FLOWER_AND_SHOP" if shops else "LOCATION_NOT_FOUND"
+
+        if shops:
+            location_kr = (
+                _DISTRICT_CODE_TO_KR.get(district_code)
+                or _REGION_CODE_TO_KR.get(region_code)
+                or location_code
+            )
+            flower_str = ", ".join(flower_names) if flower_names else "해당 꽃"
+            message = f"다음은 {location_kr}에 {flower_str}을(를) 보유한 꽃집입니다."
 
         return RecommendRes(
             phase=phase,
