@@ -3,7 +3,7 @@ import redis
 from app.core.config import REDIS_CONFIG
 
 _client: redis.Redis | None = None
-_SHOP_TTL = 3600  # 1시간
+_SHOP_TTL = 1209600
 
 
 def _get_client() -> redis.Redis:
