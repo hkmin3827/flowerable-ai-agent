@@ -44,7 +44,7 @@ app.add_middleware(
 
 
 def _detect_phase(content: str) -> Literal["exit", "1", "2"]:
-    if content.strip().lower() == "exit" or "quit":
+    if content.strip().lower() in ("exit", "quit"):
         return "exit"
 
     loc = _resolve_location_internal(content)
@@ -63,7 +63,7 @@ def _extract_flowers_from_content(content: str) -> list[str]:
 def _extract_flowers_from_text(text: str) -> list[FlowerItem]:
     items: list[FlowerItem] = []
     role_sections = {
-        "베스트": r"### 베스트 꽃(.*?)(?=###|\Z)",
+        "메인": r"### 메인 꽃(.*?)(?=###|\Z)",   # Stylist 출력: "### 메인 꽃 (베스트 선정)"
         "서브": r"### 서브 꽃(.*?)(?=###|\Z)",
         "필러": r"### 필러.*?(.*?)(?=###|\Z)",
     }
